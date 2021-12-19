@@ -11,7 +11,7 @@ NODE = 7
 TIMESLOT = 60
 TIMEGENERATE = 10
 
-log = True
+log = True  # Check to print log on screen
 index = 0   # index for next generate Transaction
 infos = []  # Add, Port: Handler + All nodes
 
@@ -98,10 +98,10 @@ if __name__ == '__main__':
             log = False
             res = input("[>] Do you really want to exit (Y/N)? ")
             if res == 'y' or res == "Y":
-                print('[>] Server stopped')
+                print('[>] Server stopped!!!')
                 input('')
                 sys.exit()
                 
             else:
-                print('[>] Server continue ...')
+                print('[>] Server continue...')
                 log = True

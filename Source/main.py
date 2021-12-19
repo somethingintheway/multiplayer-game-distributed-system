@@ -11,6 +11,8 @@ if __name__ == '__main__':
     Popen("python node.py 3", creationflags=CREATE_NEW_CONSOLE)
     Popen("python node.py 4", creationflags=CREATE_NEW_CONSOLE)
     Popen("python node.py 5", creationflags=CREATE_NEW_CONSOLE)
+
+    # Byzantine
     Popen("python node.py 6", creationflags=CREATE_NEW_CONSOLE)
     Popen("python node.py 7", creationflags=CREATE_NEW_CONSOLE)
 

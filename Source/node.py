@@ -4,18 +4,17 @@ from datetime import datetime
 import sys
 import threading
 import timeit
+import copy
 
 NODE = 7
-ETA_ACCEPT = 4
+ETA_ACCEPT = 5
 TIMESLOT = 60
 NODESHOWBC = 1
-TIMEGENERATE = 10
 MAX_TRANSACTION = 5
 GENESIS_BLOCK_HASH = '18120168_18120xxx'
 
 # Khai báo danh sách transaction
 poolTransactions = []
-blockChain = []
 NodeID = -1             # ID for current node
 infos = []              # Add, Port: Handler + All nodes
 ProposerID = -1         # ID for node proposer
@@ -45,20 +44,22 @@ class BlockChain:
         self.blk = []
         self.height = 0
 
+    #def __hash__(self) -> str:
+    #    return self.lastHash
+    
     def update(self, block):
-        self.lastHash = hash(block)
+        self.lastHash = block.getHash()
         self.blk.append(block)
-        self.height = block.height
+        self.height = block.getHeight()
 
-    def __hash__(self) -> str:
+    def getLastHash(self) -> str:
         return self.lastHash
 
-    def height(self) -> int:
+    def getHeight(self) -> int:
         return self.height
 
     def lastBlock(self):
         return self.blk[-1]        
-
 
 class Block:
     def __init__(self, txs, prevHash=None, ID=None, height=None):
@@ -84,22 +85,31 @@ class Block:
             result = result + "," + str(tx)
         return result
 
-    def __hash__(self) -> str:
+    def getHash(self) -> str:
         return hashlib.md5(str(self).encode()).hexdigest()
 
     def owner(self) -> int:
         return self.ID
 
-    def height(self) -> int:
+    def getHeight(self) -> int:
         return self.height
+
+    def getPrevHash(self) -> str:
+        return self.prevHash
 
     def verifyBlock(self, poolTxs: list, Accs)->bool:
         global BlockChainNode
-        if self.prevHash != BlockChainNode.lastHash() or len(self.txs) > MAX_TRANSACTION or self.height != BlockChainNode.height + 1:
+        if NodeID != NODESHOWBC and log:
+            print("    [-] DEBUG: Verify 1...")
+        if self.prevHash != BlockChainNode.getLastHash() or len(self.txs) > MAX_TRANSACTION or self.height != BlockChainNode.height + 1:
             return False
 
         # Verify Transaction (Exist, Valid)
+        if NodeID != NODESHOWBC and log:
+            print("    [-] DEBUG: Verify 2...")
         for tx in self.txs:
+            if NodeID != NODESHOWBC and log:
+                print("    [-] DEBUG: Verify 3...")
             if not tx in poolTxs:
                 return False
                 
@@ -120,10 +130,8 @@ class Transaction:
         receiver="", 
         amount=0, 
         id=0,
-        TxHash="",
-       
-    ):
-        if TxStr != "":
+        TxHash="" ):
+        if TxStr == "":
             self.sender = sender
             self.receiver = receiver
             self.amount = amount
@@ -143,9 +151,12 @@ class Transaction:
     def __eq__(self, __o: object) -> bool:
         return self.TxHash == __o.TxHash and self.id != __o.id 
 
-    def __hash__(self) -> str:
+    def getHash(self) -> str:
         message = self.sender + self.receiver + str(self.amount) + str(self.id)
         return hashlib.md5(message.encode()).hexdigest()
+
+    def __copy__(self):
+        return Transaction("", self.sender, self.receiver, self.amount, self.id, self.TxHash)
 
     def getID(self) -> int:
         return self.id
@@ -153,7 +164,7 @@ class Transaction:
     # Kiểm tra tính toàn vẹn giao dịch và số dư hợp lệ
     def verifyTransaction(self, Accounts):
         # Check hash
-        if self.TxHash != hash(self) or Accounts[self.sender] < self.amount:
+        if self.TxHash != self.getHash() or Accounts[self.sender] < self.amount:
             return False
         
         return True
@@ -177,13 +188,13 @@ def convertAddr(info:str):
 
 # Dùng để nhận event (Proposer, Transaction, CreateBlock, AcceptBlock, UpdateBlock)
 def listenEvent(infos: list):
-    global log, NodeID, ProposerID, poolTransactions, isMined, stopEvent, BlockChainNode, voted, timeStartMining, isBroadcast, proposeBlock
+    global isNewBlock, log, NodeID, ProposerID, poolTransactions, isMined, stopEvent, BlockChainNode, voted, timeStartMining, isBroadcast, proposeBlock
 
     host, port = convertAddr(infos[NodeID])
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind((host, int(port)))
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.listen()
+        s.listen(NODE * 3)
         while True:
             conn, addr = s.accept()
             with conn:
@@ -191,33 +202,39 @@ def listenEvent(infos: list):
                     data = conn.recv(1024).decode("utf-8")
                     if not data:
                         break
-                    else:
-                        print("Debug: " + data)
+                    elif NodeID != NODESHOWBC and log:
+                        print("    [-] Debug: " + data)
+                        
+                        # Receive notification about proposer
                         if "Proposer" in data:
                             # Log NewBlock in NodeID=1
                             if isNewBlock and NodeID == NODESHOWBC:
-                                b = BlockChainNode.lastBlock()
+                                b = BlockChainNode.getLastBlock()
 
-                                balanceStr = "({0}: {1}".format("Alice", accounts["Alice"])
-                                for user in accounts[1:]:
-                                    balanceStr += ", ({0}: {1}".format(user, accounts[user])
+                                balanceStr = ""
+                                for user in accounts:
+                                    balanceStr += ", ({0}: {1})".format(user, accounts[user])
+                                balanceStr = balanceStr[2:]
 
                                 txsStr = ""
                                 for txStr in str(b).split(",")[3:]:
                                     txsStr += "        ({0})".format(txStr)
                                 
-                                print("[>] Block {0} created".format(b.height))
-                                print("    [+] PrevHash: {0}", b.prevHash)
+                                print("[>] Block {0} created".format(b.getHeight()))
+                                print("    [+] PrevHash: {0}", b.getPrevHash())
                                 print("    [+] Balance: {0}".format(balanceStr))
                                 print("    [+] Miner: NodeID={}".format(b.owner()))
                                 print("    [+] {0}".format(votedLog))
-                                print("    [+] TxHash:")
-                                print("{0}".format(txsStr))
+                                if txsStr != "":
+                                    print("    [+] Transaction:")
+                                    print("{0}".format(txsStr))
+                                else:
+                                    print("    [+] No trasaction")
 
                                 isNewBlock = False
                                 votedLog = ""
 
-                            # Update
+                            # Update info ProposerID
                             ProposerID = int(data.split(" ")[1])
                             timeObj = datetime.now().time()
                             if log and NodeID != NODESHOWBC:
@@ -247,14 +264,14 @@ def listenEvent(infos: list):
                             if log and NodeID != NODESHOWBC:
                                 print("    [+] Transaction: ID={0} received".format(id))
 
-                        # Check and verify block
+                        # Check and verify block: CreateBlock:str(block)
                         elif "CreateBlock" in data:
-                            
-                            verify(data.split(":")[1])
+                            p = threading.Thread(target = verify, args=[data.split(":")[1]], daemon= True)
+                            p.start()
 
                         elif "AcceptBlock" in data:
                             # Revoke mining
-                            if timeit.default_timer - timeStartMining > TIMESLOT:
+                            if timeit.default_timer() - timeStartMining > TIMESLOT:
                                 stopEvent.set()
                                 stopEvent.clear()
                                 isMined = False
@@ -267,14 +284,21 @@ def listenEvent(infos: list):
 
                             if len(voted) >= ETA_ACCEPT:
                                 # Send only to NodeID=1 to log new voted
-                                
+                                #sendVotedList()
+                                p = threading.Thread(target = sendVotedList, args=[], daemon= True)
+                                p.start()
 
                                 # Broadcast to other node
                                 if not isBroadcast:
-                                    updateBlock()
+                                    #updateBlock()
+                                    q = threading.Thread(target = updateBlock, args=[], daemon= True)
+                                    q.start()
+                                    isBroadcast = True
 
                         elif "UpdateBlock" in data:
-                            updateBlockChain(data.split(":")[1])
+                            p = threading.Thread(target = updateBlockChain, args=[data.split(":")[1]], daemon= True)
+                            p.start()
+                            #updateBlockChain(data.split(":")[1])
 
                         # Only for NodeID=1
                         elif "Voted" in data and NodeID == NODESHOWBC: 
@@ -282,11 +306,12 @@ def listenEvent(infos: list):
                             votedLog = data
 
 # Send list voted to NODESHOWBC
-def votedList():
-    global voted, log, infos, NodeID
-    votedStr = "{0}".format(voted[0])
-    for i in voted[1:]:
+def sendVotedList():
+    global voted, log, infos, NodeID, isNewBlock, votedLog
+    votedStr = ""
+    for i in voted:
         votedStr += ", {0}".format(i)
+    votedStr = votedStr[2:]
 
     msg = "Voted: {0}/{1} (NodeID: {2})".format(len(voted), NODE, votedStr)
 
@@ -306,12 +331,14 @@ def votedList():
 
 # Tạo block và broadcast
 def miningBlock(infos: list):
-    global NodeID, stopEvent, accounts, poolTransactions, BlockChainNode, proposeBlock
-    print("    [>] NodeID={0} start mining".format(NodeID))
+    global NodeID, stopEvent, accounts, poolTransactions, BlockChainNode, proposeBlock, log
+    if NodeID != NODESHOWBC and log:
+        print("    [>] NodeID={0} start mining".format(NodeID))
 
     txs = []
     if stopEvent.is_set():
-        print("    [>] NodeID={0} stop mining".format(NodeID))
+        if NodeID != NODESHOWBC and log:
+            print("    [>] NodeID={0} stop mining".format(NodeID))
         return
 
     accs = accounts.copy()
@@ -326,16 +353,19 @@ def miningBlock(infos: list):
                 break
     
     # Create Block
-    print("Num transactions Accepted: " + str(len(txs)))
+    if NodeID != NODESHOWBC and log:
+        print("    [-] Num transactions Accepted: " + str(len(txs)))
     if stopEvent.is_set():
-        print("    [>] NodeID={0} stop mining".format(NodeID))
+        if NodeID != NODESHOWBC and log:
+            print("    [>] NodeID={0} stop mining".format(NodeID))
         return
-    proposeBlock = Block(txs, hash(BlockChainNode), NodeID, BlockChainNode.height())
-    mess = "Createblock:{0}".format(str(proposeBlock))
+    proposeBlock = Block(txs, BlockChainNode.getLastHash(), NodeID, BlockChainNode.getHeight() + 1)
+    mess = "CreateBlock:{0}".format(str(proposeBlock))
 
     # Broadcast block
     if stopEvent.is_set():
-        print("    [>] NodeID={0} stop mining".format(NodeID))
+        if NodeID != NODESHOWBC and log:
+            print("    [>] NodeID={0} stop mining".format(NodeID))
         return
     for info in infos[1:NodeID] + infos[NodeID + 1:]:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -344,10 +374,11 @@ def miningBlock(infos: list):
                 s.connect((host, int(port)))
                 s.send(mess.encode("utf-8"))
             except Exception as e:
-                if log:
+                if NodeID != NODESHOWBC and log:
                     print("    [-] DEBUG: Send CreateBlock to {0}:{1} failed: {2}".format(host, port, e))
 
-    print("    [>] NodeID={0} stop mining".format(NodeID))
+    if NodeID != NODESHOWBC and log:
+        print("    [>] NodeID={0} stop mining".format(NodeID))
 
 # Verify block
 def verify(block: str):
@@ -360,10 +391,11 @@ def verify(block: str):
             host, port = convertAddr(infos[b.owner()])
             try:
                 s.connect((host, int(port)))
-                s.send("AcceptBlock:{0}".format(NodeID))
+                msg = "AcceptBlock:{0}".format(NodeID)
+                s.send(msg.encode("utf-8"))
             except Exception as e:
                 if log:
-                    print("    [-] DEBUG: Send AcceptBlock to {0}:{1} failed: {2}".format(host, port, e))
+                    print("    [-] DEBUG: Response AcceptBlock to {0}:{1} failed: {2}".format(host, port, e))
 
 # Send Event updateBlock and update BlockChain
 def updateBlock():
@@ -385,7 +417,7 @@ def updateBlock():
 
 # Add block, update Balance 
 def updateBlockChain(blkStr: str):
-    global BlockChainNode, accounts, poolTransactions, log, NodeID, isNewBlock
+    global BlockChainNode, accounts, poolTransactions, log, NodeID
     
     b = Block(blkStr)
     BlockChainNode.update(b)
@@ -414,12 +446,19 @@ if __name__ == '__main__':
     # Load config
     infos = loadConfig()
     BlockChainNode = BlockChain()
+    # Print genesis block
+    if NodeID == NODESHOWBC:
+        balanceStr = ""
+        for user in accounts:
+            balanceStr += ", ({0}: {1})".format(user, accounts[user])
+        balanceStr = balanceStr[2:]
+
+        print("[>] Block GENESIS 0: " + GENESIS_BLOCK_HASH)
+        print("    [+] Balance: {0}".format(balanceStr))
 
     # Thread nhận event
     x = threading.Thread(target = listenEvent, args=[infos], daemon= True)
     x.start()
-
-    # Thread xác nhận các block
 
     # Stop node: Ctrl C and verify
     while True:
